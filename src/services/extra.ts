@@ -730,7 +730,7 @@ export async function handlePermanentDeleteSlide(db: D1Database, id: number): Pr
 
 /** 規範化前端路由路徑（確保以 / 開頭，去除多餘連續斜杠及尾部斜杠，但保留根路徑 /） */
 export function normalizePathname(raw: string): string {
-  let path = raw.trim();
+  let path = raw.trim().toLowerCase();
   if (!path) return '';
   if (!path.startsWith('/')) {
     path = '/' + path;
@@ -754,17 +754,33 @@ export async function handleListSlides(
     const norm = normalizePathname(pathname);
     // 查找匹配 pathname 的分組（按 sorting ASC, CAST(gid AS INTEGER) ASC 取第一個）
     const group = await db.prepare(
-      'SELECT gid FROM ay_slide_group WHERE pathname = ? ORDER BY sorting ASC, CAST(gid AS INTEGER) ASC LIMIT 1',
-    ).bind(norm).first<{ gid: string }>();
+      'SELECT gid, name, pathname FROM ay_slide_group WHERE LOWER(pathname) = ? ORDER BY sorting ASC, CAST(gid AS INTEGER) ASC LIMIT 1',
+    ).bind(norm).first<{ gid: string; name: string; pathname: string }>();
 
     if (!group) {
-      return okData([], '成功'); // 該路徑無對應輪播圖分組，返回空數組
+      // 明確告知前端：CMS 尚未配置該路徑對應的輪播圖分組
+      return Response.json({
+        code: 1004,
+        msg: `CMS 尚未配置路徑「${norm}」對應的輪播圖分組`,
+        data: [],
+        group: null,
+      });
     }
 
     const result = await db.prepare(
       `SELECT * FROM ay_slide WHERE gid = ? AND (status = '1' OR status IS NULL) ORDER BY sorting ASC, id ASC`,
     ).bind(group.gid).all();
-    return okData(result.results, '成功');
+
+    return Response.json({
+      code: 0,
+      msg: result.results.length > 0 ? '成功' : '該分組暫無已發布的輪播圖',
+      data: result.results,
+      group: {
+        gid: group.gid,
+        name: group.name,
+        pathname: group.pathname,
+      },
+    });
   }
 
   const gid = params.get('gid') || '';
@@ -819,7 +835,15 @@ export async function handleCreateSlideGroup(
   }
 
   const name = (body.name || '').trim() || `分組 ${gid}`;
-  const sorting = typeof body.sorting === 'number' ? body.sorting : 255;
+
+  // 排序接龍：若未指定 sorting，自動取 MAX(sorting) + 1
+  let sorting = typeof body.sorting === 'number' ? body.sorting : undefined;
+  if (sorting === undefined) {
+    const maxSortRow = await db.prepare(
+      'SELECT MAX(sorting) as maxSort FROM ay_slide_group',
+    ).first<{ maxSort: number | null }>();
+    sorting = (maxSortRow?.maxSort ?? 0) + 1;
+  }
   const rawPath = typeof body.pathname === 'string' ? body.pathname.trim() : '';
   const pathname = rawPath ? normalizePathname(rawPath) : '';
 
@@ -896,6 +920,11 @@ export async function handleUpdateSlideGroup(
 
 /** 刪除幻燈片分組（按 gid 查找，安全檢查關聯幻燈片） */
 export async function handleDeleteSlideGroup(db: D1Database, gid: string): Promise<Response> {
+  // 系統首頁預設分組 (gid='1') 不可刪除
+  if (gid === '1') {
+    return err('系統首頁預設分組不可刪除', 1003);
+  }
+
   // 檢查分組下是否有幻燈片
   const slideCount = await db.prepare(
     'SELECT COUNT(*) as count FROM ay_slide WHERE gid = ?',

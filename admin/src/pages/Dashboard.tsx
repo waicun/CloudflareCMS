@@ -61,10 +61,23 @@ const TABS: { key: TabKey; label: string; icon: string }[] = [
 /** 版本更新歷史（硬編碼，時區：Asia/Hong_Kong） */
 const VERSIONS: VersionEntry[] = [
   {
+    version: 'v1.9.82',
+    date: '2026-10-29 15:00:00',
+    icon: '✨',
+    latest: true,
+    changes: `✨ 輪播圖分組體驗深度優化：未配路徑精確反饋、操作收納、排序接龍與首頁防刪
+
+📋 變更內容
+• 📡 查詢 API 精確反饋 (code 1004)：GET /api/v1/slides?pathname=/xxx 查詢未在後台配置的路徑時，明確返回 code: 1004 與提示「CMS 尚未配置路徑對應的輪播圖分組」；命中分組時附加 group: { gid, name, pathname } 元數據，路徑查詢不區分大小寫
+• 🧹 操作介面收納：移除分組 Tab 標籤上的內聯改名與快速新增，統一收納至「⚙️ 分組管理」彈窗，保持標籤欄簡潔清爽
+• 🔢 新增分組自動化：隱藏 GID 手動輸入項（改由後端自動遞增），新增分組時排序 (sorting) 默認自動接龍 (+1)，降低操作心智負擔
+• 🛡️ 首頁預設分組防刪保護：系統預設首頁分組 (gid=\'1\') 在前端禁用刪除按鈕並標註「首頁」徽章，後端核心接口同步加入防刪校驗 (code 1003)`,
+  },
+  {
     version: 'v1.9.81',
     date: '2026-10-29 14:30:00',
     icon: '🗂️',
-    latest: true,
+    latest: false,
     changes: `🗂️ 幻燈片分組前端路由 (pathname) 綁定與分組管理彈窗
 
 📋 變更內容
@@ -1244,7 +1257,7 @@ const API_ENDPOINTS: ApiEndpoint[] = [
   { method: 'GET', path: '/api/v1/contents/:idOrSlug', desc: '內容詳情 (?status=0 草稿預覽, content平鋪sortname+ext_*字段, prev/next同欄目樹, faqJson FAQ JSON-LD, v1.8.1+)', auth: false },
   { method: 'GET', path: '/api/v1/search', desc: '語義搜索 (?q=關鍵詞&topK=10&threshold=0.5)', auth: false },
   { method: 'GET', path: '/api/v1/slides/groups', desc: '幻燈片分組列表 (含 pathname 綁定 v1.9.81+)', auth: false },
-  { method: 'GET', path: '/api/v1/slides', desc: '幻燈片列表 (?gid= 或 ?pathname=前端路徑 v1.9.81+)', auth: false },
+  { method: 'GET', path: '/api/v1/slides', desc: '幻燈片列表 (?gid= 或 ?pathname=前端路徑，未配置返回 1004 v1.9.82+)', auth: false },
   { method: 'GET', path: '/api/v1/links', desc: '友情連結 (?gid=)', auth: false },
   { method: 'GET', path: '/api/v1/singles', desc: '單頁列表', auth: false },
   { method: 'GET', path: '/api/v1/singles/:scode', desc: '單頁詳情', auth: false },
