@@ -222,12 +222,19 @@ export default function Slides() {
     return map
   }, [groups])
 
-  // 提取所有唯一分組 ID（合併分組表 + 幻燈片實際使用的 gid，按數值排序）
+  // 提取所有唯一分組 ID（優先按 ay_slide_group 中的 sorting 排序，次依數值 gid 排序）
   const uniqueGroups = useMemo(() => {
+    const groupSortMap = new Map<string, number>()
+    groups.forEach((g, idx) => {
+      groupSortMap.set(g.gid, Number(g.sorting ?? idx))
+    })
     const set = new Set<string>()
     for (const g of groups) set.add(g.gid)
     for (const s of slides) set.add(s.gid ?? '0')
     return Array.from(set).sort((a, b) => {
+      const sortA = groupSortMap.has(a) ? groupSortMap.get(a)! : 9999
+      const sortB = groupSortMap.has(b) ? groupSortMap.get(b)! : 9999
+      if (sortA !== sortB) return sortA - sortB
       const na = parseInt(a, 10)
       const nb = parseInt(b, 10)
       if (isNaN(na) || isNaN(nb)) return a.localeCompare(b)
@@ -604,13 +611,21 @@ export default function Slides() {
           <button
             onClick={() => setActiveGroup('all')}
             className={cn(
-              'px-3 py-1.5 rounded-md text-sm font-medium transition-colors',
+              'px-3.5 py-1.5 rounded-md text-left transition-colors flex flex-col justify-center min-h-[46px]',
               activeGroup === 'all'
-                ? 'bg-primary text-primary-foreground'
-                : 'bg-secondary text-secondary-foreground hover:bg-accent',
+                ? 'bg-primary text-primary-foreground shadow-sm'
+                : 'bg-secondary text-secondary-foreground hover:bg-accent border border-slate-200/80',
             )}
           >
-            全部 <span className="ml-1 opacity-70">({slides.length})</span>
+            <div className="flex items-center gap-1.5 text-sm font-medium leading-tight">
+              <span>全部</span>
+              <span className={cn('text-xs', activeGroup === 'all' ? 'text-primary-foreground/80' : 'text-muted-foreground')}>
+                ({slides.length})
+              </span>
+            </div>
+            <span className="text-[10px] leading-none mt-1 opacity-50">
+              全部分組
+            </span>
           </button>
           {uniqueGroups.map((gid) => {
             const count = slides.filter((s) => (s.gid ?? '0') === gid).length
@@ -621,23 +636,36 @@ export default function Slides() {
                 key={gid}
                 onClick={() => setActiveGroup(gid)}
                 className={cn(
-                  'px-3 py-1.5 rounded-md text-sm font-medium transition-colors flex items-center gap-1.5',
+                  'px-3.5 py-1.5 rounded-md text-left transition-colors flex flex-col justify-center min-h-[46px]',
                   isActive
-                    ? 'bg-primary text-primary-foreground'
-                    : 'bg-secondary text-secondary-foreground hover:bg-accent',
+                    ? 'bg-primary text-primary-foreground shadow-sm'
+                    : 'bg-secondary text-secondary-foreground hover:bg-accent border border-slate-200/80',
                 )}
-                title={g?.pathname ? `前端路由: ${g.pathname}` : undefined}
+                title={g?.pathname ? `分組: ${getGroupDisplayName(gid, groupNames)}\n前端路由: ${g.pathname}` : undefined}
               >
-                <span>{getGroupDisplayName(gid, groupNames)}</span>
-                {g?.pathname && (
-                  <span className={cn(
-                    'text-[11px] font-mono px-1.5 py-0.2 rounded',
-                    isActive ? 'bg-primary-foreground/20 text-primary-foreground' : 'bg-muted text-muted-foreground'
-                  )}>
+                <div className="flex items-center gap-1.5 text-sm font-medium leading-tight">
+                  <span>{getGroupDisplayName(gid, groupNames)}</span>
+                  <span className={cn('text-xs', isActive ? 'text-primary-foreground/80' : 'text-muted-foreground')}>
+                    ({count})
+                  </span>
+                </div>
+                {g?.pathname ? (
+                  <span
+                    className={cn(
+                      'text-[10px] font-mono leading-tight mt-1 px-1.5 py-0.5 rounded max-w-[200px] truncate block',
+                      isActive
+                        ? 'bg-primary-foreground/20 text-primary-foreground/95'
+                        : 'bg-slate-200/80 text-slate-600',
+                    )}
+                    title={g.pathname}
+                  >
                     {g.pathname}
                   </span>
+                ) : (
+                  <span className="text-[10px] leading-none mt-1 text-muted-foreground/40 font-mono">
+                    ID: {gid}
+                  </span>
                 )}
-                <span className="opacity-70">({count})</span>
               </button>
             )
           })}
@@ -647,10 +675,14 @@ export default function Slides() {
               setNewGroupForm({ name: '', pathname: '', sorting: nextSort })
               setGroupManageOpen(true)
             }}
-            className="px-3 py-1.5 rounded-md text-sm font-medium bg-secondary text-secondary-foreground hover:bg-accent border border-slate-300 transition-colors flex items-center gap-1.5"
+            className="px-3.5 py-1.5 rounded-md text-sm font-medium bg-secondary text-secondary-foreground hover:bg-accent border border-slate-300 transition-colors flex items-center gap-2 min-h-[46px]"
             title="開啟完整分組管理視窗 (配置名稱、前端路徑及排序)"
           >
-            <span>⚙️</span> 分組管理
+            <span className="text-base">⚙️</span>
+            <div className="text-left">
+              <div className="leading-tight font-medium">分組管理</div>
+              <div className="text-[10px] text-muted-foreground leading-none mt-1">配置路徑與排序</div>
+            </div>
           </button>
         </div>
       )}
@@ -729,9 +761,19 @@ export default function Slides() {
                     </td>
                     <td className="px-4 py-3 text-muted-foreground">{item.id}</td>
                     <td className="px-4 py-3">
-                      <span className="inline-block px-2 py-0.5 rounded text-xs font-medium bg-blue-50 text-blue-700">
-                        {getGroupDisplayName(item.gid ?? '0', groupNames)}
-                      </span>
+                      <div>
+                        <span className="inline-block px-2 py-0.5 rounded text-xs font-medium bg-blue-50 text-blue-700">
+                          {getGroupDisplayName(item.gid ?? '0', groupNames)}
+                        </span>
+                        {(() => {
+                          const g = groups.find((grp) => grp.gid === (item.gid ?? '0'))
+                          return g?.pathname ? (
+                            <div className="text-[10px] text-muted-foreground font-mono mt-0.5" title={g.pathname}>
+                              {g.pathname}
+                            </div>
+                          ) : null
+                        })()}
+                      </div>
                     </td>
                     <td className="px-4 py-3">
                       {item.pic ? (

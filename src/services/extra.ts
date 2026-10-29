@@ -732,12 +732,19 @@ export async function handlePermanentDeleteSlide(db: D1Database, id: number): Pr
 export function normalizePathname(raw: string): string {
   let path = raw.trim().toLowerCase();
   if (!path) return '';
+  // 去除可能誤傳的 query 參數或 hash 片段
+  const qIdx = path.indexOf('?');
+  if (qIdx !== -1) path = path.slice(0, qIdx);
+  const hIdx = path.indexOf('#');
+  if (hIdx !== -1) path = path.slice(0, hIdx);
+  path = path.trim();
+  if (!path) return '';
   if (!path.startsWith('/')) {
     path = '/' + path;
   }
   // 去除多個連續斜杠
   path = path.replace(/\/+/g, '/');
-  // 去除尾部斜杠（除了單一 '/'）
+  // 長度大於 1 時去除末尾斜杠（保留根路徑 /）
   if (path.length > 1 && path.endsWith('/')) {
     path = path.slice(0, -1);
   }
@@ -750,8 +757,16 @@ export async function handleListSlides(
   params: URLSearchParams,
 ): Promise<Response> {
   const pathname = params.get('pathname');
-  if (pathname !== null && pathname !== undefined && pathname.trim() !== '') {
+  if (pathname !== null) {
     const norm = normalizePathname(pathname);
+    if (!norm) {
+      return Response.json({
+        code: 1004,
+        msg: '請提供有效的前端路徑 pathname',
+        data: [],
+        group: null,
+      });
+    }
     // 查找匹配 pathname 的分組（按 sorting ASC, CAST(gid AS INTEGER) ASC 取第一個）
     const group = await db.prepare(
       'SELECT gid, name, pathname FROM ay_slide_group WHERE LOWER(pathname) = ? ORDER BY sorting ASC, CAST(gid AS INTEGER) ASC LIMIT 1',
@@ -850,7 +865,7 @@ export async function handleCreateSlideGroup(
   // 若指定了 pathname，檢查是否與其他分組衝突
   if (pathname) {
     const pathConflict = await db.prepare(
-      'SELECT gid, name FROM ay_slide_group WHERE pathname = ?',
+      'SELECT gid, name FROM ay_slide_group WHERE LOWER(pathname) = ?',
     ).bind(pathname).first<{ gid: string; name: string }>();
     if (pathConflict) {
       return err(`前端路徑「${pathname}」已綁定至分組 [${pathConflict.gid}] ${pathConflict.name}`, 1002);
@@ -887,7 +902,7 @@ export async function handleUpdateSlideGroup(
     if (pathname) {
       // 檢查 pathname 是否被其他分組佔用
       const conflict = await db.prepare(
-        'SELECT gid, name FROM ay_slide_group WHERE pathname = ? AND gid != ?',
+        'SELECT gid, name FROM ay_slide_group WHERE LOWER(pathname) = ? AND gid != ?',
       ).bind(pathname, gid).first<{ gid: string; name: string }>();
       if (conflict) {
         return err(`前端路徑「${pathname}」已綁定至分組 [${conflict.gid}] ${conflict.name}`, 1002);
