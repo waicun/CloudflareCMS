@@ -728,13 +728,46 @@ export async function handlePermanentDeleteSlide(db: D1Database, id: number): Pr
   return ok('已永久刪除');
 }
 
-/** 公開幻燈片列表 (支持 gid 篩選，僅返回 status='1' 的可見幻燈片) */
+/** 規範化前端路由路徑（確保以 / 開頭，去除多餘連續斜杠及尾部斜杠，但保留根路徑 /） */
+export function normalizePathname(raw: string): string {
+  let path = raw.trim();
+  if (!path) return '';
+  if (!path.startsWith('/')) {
+    path = '/' + path;
+  }
+  // 去除多個連續斜杠
+  path = path.replace(/\/+/g, '/');
+  // 去除尾部斜杠（除了單一 '/'）
+  if (path.length > 1 && path.endsWith('/')) {
+    path = path.slice(0, -1);
+  }
+  return path;
+}
+
+/** 公開幻燈片列表 (支持 gid 或 pathname 篩選，僅返回 status='1' 的可見幻燈片) */
 export async function handleListSlides(
   db: D1Database,
   params: URLSearchParams,
 ): Promise<Response> {
-  const gid = params.get('gid') || '';
+  const pathname = params.get('pathname');
+  if (pathname !== null && pathname !== undefined && pathname.trim() !== '') {
+    const norm = normalizePathname(pathname);
+    // 查找匹配 pathname 的分組（按 sorting ASC, CAST(gid AS INTEGER) ASC 取第一個）
+    const group = await db.prepare(
+      'SELECT gid FROM ay_slide_group WHERE pathname = ? ORDER BY sorting ASC, CAST(gid AS INTEGER) ASC LIMIT 1',
+    ).bind(norm).first<{ gid: string }>();
 
+    if (!group) {
+      return okData([], '成功'); // 該路徑無對應輪播圖分組，返回空數組
+    }
+
+    const result = await db.prepare(
+      `SELECT * FROM ay_slide WHERE gid = ? AND (status = '1' OR status IS NULL) ORDER BY sorting ASC, id ASC`,
+    ).bind(group.gid).all();
+    return okData(result.results, '成功');
+  }
+
+  const gid = params.get('gid') || '';
   if (gid) {
     const result = await db.prepare(
       `SELECT * FROM ay_slide WHERE gid = ? AND (status = '1' OR status IS NULL) ORDER BY sorting ASC, id ASC`,
@@ -750,7 +783,7 @@ export async function handleListSlides(
 
 // ============================================================================
 // 模塊 3b: 幻燈片分組 (ay_slide_group)
-// 存儲 gid → name 映射，讓所有賬號共享分組名稱（取代原 localStorage 方案）
+// 存儲 gid → name 映射與前端路由路徑 pathname 綁定，讓所有賬號共享分組
 // ============================================================================
 
 /** 獲取所有幻燈片分組（按 sorting ASC 排序） */
@@ -761,10 +794,10 @@ export async function handleListSlideGroups(db: D1Database): Promise<Response> {
   return okData(result.results, '成功');
 }
 
-/** 新增幻燈片分組（gid 唯一，自動計算下一個可用 ID） */
+/** 新增幻燈片分組（gid 唯一，自動計算下一個可用 ID，支持 pathname 前端路徑） */
 export async function handleCreateSlideGroup(
   db: D1Database,
-  body: { gid?: string; name?: string; sorting?: number },
+  body: { gid?: string; name?: string; pathname?: string; sorting?: number },
 ): Promise<Response> {
   const now = nowStr();
 
@@ -787,28 +820,57 @@ export async function handleCreateSlideGroup(
 
   const name = (body.name || '').trim() || `分組 ${gid}`;
   const sorting = typeof body.sorting === 'number' ? body.sorting : 255;
+  const rawPath = typeof body.pathname === 'string' ? body.pathname.trim() : '';
+  const pathname = rawPath ? normalizePathname(rawPath) : '';
+
+  // 若指定了 pathname，檢查是否與其他分組衝突
+  if (pathname) {
+    const pathConflict = await db.prepare(
+      'SELECT gid, name FROM ay_slide_group WHERE pathname = ?',
+    ).bind(pathname).first<{ gid: string; name: string }>();
+    if (pathConflict) {
+      return err(`前端路徑「${pathname}」已綁定至分組 [${pathConflict.gid}] ${pathConflict.name}`, 1002);
+    }
+  }
 
   await db.prepare(
-    'INSERT INTO ay_slide_group (gid, name, sorting, create_time, update_time) VALUES (?, ?, ?, ?, ?)',
-  ).bind(gid, name, sorting, now, now).run();
+    'INSERT INTO ay_slide_group (gid, name, pathname, sorting, create_time, update_time) VALUES (?, ?, ?, ?, ?, ?)',
+  ).bind(gid, name, pathname, sorting, now, now).run();
 
-  return okData({ gid, name, sorting }, '分組創建成功');
+  return okData({ gid, name, pathname, sorting }, '分組創建成功');
 }
 
-/** 更新幻燈片分組名稱（按 gid 查找） */
+/** 更新幻燈片分組名稱及前端路徑（按 gid 查找） */
 export async function handleUpdateSlideGroup(
   db: D1Database,
   gid: string,
-  body: { name?: string; sorting?: number },
+  body: { name?: string; pathname?: string; sorting?: number },
 ): Promise<Response> {
   const now = nowStr();
   const sets: string[] = [];
   const binds: (string | number)[] = [];
 
-  const name = (body.name || '').trim();
-  if (name) {
-    sets.push('name = ?');
-    binds.push(name);
+  if (typeof body.name === 'string') {
+    const name = body.name.trim();
+    if (name) {
+      sets.push('name = ?');
+      binds.push(name);
+    }
+  }
+  if (typeof body.pathname === 'string') {
+    const rawPath = body.pathname.trim();
+    const pathname = rawPath ? normalizePathname(rawPath) : '';
+    if (pathname) {
+      // 檢查 pathname 是否被其他分組佔用
+      const conflict = await db.prepare(
+        'SELECT gid, name FROM ay_slide_group WHERE pathname = ? AND gid != ?',
+      ).bind(pathname, gid).first<{ gid: string; name: string }>();
+      if (conflict) {
+        return err(`前端路徑「${pathname}」已綁定至分組 [${conflict.gid}] ${conflict.name}`, 1002);
+      }
+    }
+    sets.push('pathname = ?');
+    binds.push(pathname);
   }
   if (typeof body.sorting === 'number') {
     sets.push('sorting = ?');
@@ -832,8 +894,16 @@ export async function handleUpdateSlideGroup(
   return ok('分組更新成功');
 }
 
-/** 刪除幻燈片分組（按 gid 查找，不刪除關聯的幻燈片） */
+/** 刪除幻燈片分組（按 gid 查找，安全檢查關聯幻燈片） */
 export async function handleDeleteSlideGroup(db: D1Database, gid: string): Promise<Response> {
+  // 檢查分組下是否有幻燈片
+  const slideCount = await db.prepare(
+    'SELECT COUNT(*) as count FROM ay_slide WHERE gid = ?',
+  ).bind(gid).first<{ count: number }>();
+  if (slideCount && slideCount.count > 0) {
+    return err(`該分組下仍有 ${slideCount.count} 張幻燈片，請先轉移或刪除圖片後再刪除分組`, 1003);
+  }
+
   const result = await db.prepare(
     'DELETE FROM ay_slide_group WHERE gid = ?',
   ).bind(gid).run();

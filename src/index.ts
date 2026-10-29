@@ -459,6 +459,11 @@ app.get('/api/v1/links', async (c) => {
   return extraService.handleListLinks(siteDB(c), params);
 });
 
+// 公開幻燈片分組列表 (返回包含 pathname 的分組清單)
+app.get('/api/v1/slides/groups', async (c) => {
+  return extraService.handleListSlideGroups(siteDB(c));
+});
+
 app.get('/api/v1/slides', async (c) => {
   const params = new URL(c.req.url).searchParams;
   return extraService.handleListSlides(siteDB(c), params);

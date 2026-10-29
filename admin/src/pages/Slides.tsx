@@ -50,6 +50,7 @@ interface SlideGroup {
   id: number
   gid: string
   name: string
+  pathname?: string
   sorting: number
 }
 
@@ -78,6 +79,23 @@ export default function Slides() {
   const [groupNameInput, setGroupNameInput] = useState('')
   const [newGroupMode, setNewGroupMode] = useState(false)
   const [newGroupName, setNewGroupName] = useState('')
+
+  // ─── 分組管理 Modal 狀態 ─────────────────────────────────
+  const [groupManageOpen, setGroupManageOpen] = useState(false)
+  const [groupActionError, setGroupActionError] = useState('')
+  const [groupSaving, setGroupSaving] = useState(false)
+  const [newGroupForm, setNewGroupForm] = useState({
+    gid: '',
+    name: '',
+    pathname: '',
+    sorting: 10,
+  })
+  const [editingGroupRow, setEditingGroupRow] = useState<{
+    gid: string
+    name: string
+    pathname: string
+    sorting: number
+  } | null>(null)
 
   // 圖片上傳狀態
   const [uploadTarget, setUploadTarget] = useState<'desktop' | 'mobile' | null>(null)
@@ -257,6 +275,80 @@ export default function Slides() {
       }
     } catch {
       // 失敗時保持新增模式，用戶可重試
+    }
+  }
+
+  // ─── 分組管理 Modal 專用操作 ─────────────────────────────
+  const handleModalCreateGroup = async () => {
+    if (!newGroupForm.name.trim()) {
+      setGroupActionError('分組名稱不能為空')
+      return
+    }
+    setGroupSaving(true)
+    setGroupActionError('')
+    try {
+      const res = await api.post<{ gid: string }>('/admin/slides/groups', {
+        gid: newGroupForm.gid.trim() || undefined,
+        name: newGroupForm.name.trim(),
+        pathname: newGroupForm.pathname.trim() || undefined,
+        sorting: Number(newGroupForm.sorting) || 255,
+      })
+      await fetchGroups()
+      setNewGroupForm({ gid: '', name: '', pathname: '', sorting: (groups.length + 1) * 10 })
+      if (res.data?.gid) {
+        setActiveGroup(res.data.gid)
+      }
+    } catch (err) {
+      setGroupActionError(err instanceof Error ? err.message : '創建分組失敗')
+    } finally {
+      setGroupSaving(false)
+    }
+  }
+
+  const handleModalUpdateGroup = async (gid: string) => {
+    if (!editingGroupRow) return
+    if (!editingGroupRow.name.trim()) {
+      setGroupActionError('分組名稱不能為空')
+      return
+    }
+    setGroupSaving(true)
+    setGroupActionError('')
+    try {
+      await api.put(`/admin/slides/groups/${gid}`, {
+        name: editingGroupRow.name.trim(),
+        pathname: editingGroupRow.pathname.trim(),
+        sorting: Number(editingGroupRow.sorting) || 255,
+      })
+      await fetchGroups()
+      setEditingGroupRow(null)
+    } catch (err) {
+      setGroupActionError(err instanceof Error ? err.message : '更新分組失敗')
+    } finally {
+      setGroupSaving(false)
+    }
+  }
+
+  const handleModalDeleteGroup = async (gid: string) => {
+    const count = slides.filter((s) => (s.gid ?? '0') === gid).length
+    if (count > 0) {
+      setGroupActionError(`該分組下仍有 ${count} 張幻燈片，請先移除圖片後再刪除分組`)
+      return
+    }
+    if (!window.confirm(`確定要刪除分組「${groupNames[gid] || gid}」嗎？`)) {
+      return
+    }
+    setGroupSaving(true)
+    setGroupActionError('')
+    try {
+      await api.del(`/admin/slides/groups/${gid}`)
+      await fetchGroups()
+      if (activeGroup === gid) {
+        setActiveGroup('all')
+      }
+    } catch (err) {
+      setGroupActionError(err instanceof Error ? err.message : '刪除分組失敗')
+    } finally {
+      setGroupSaving(false)
     }
   }
 
@@ -506,6 +598,14 @@ export default function Slides() {
                 新增幻燈片
               </button>
               <button
+                onClick={() => setGroupManageOpen(true)}
+                className="inline-flex items-center gap-1.5 px-4 py-2 border rounded-md hover:bg-accent transition-colors text-sm"
+                title="管理分組名稱與前端路由 (pathname) 綁定"
+              >
+                <span className="mr-1">⚙️</span>
+                分組管理
+              </button>
+              <button
                 onClick={() => setTrashMode(true)}
                 className="inline-flex items-center gap-1.5 px-4 py-2 border rounded-md hover:bg-accent transition-colors text-sm"
               >
@@ -543,6 +643,7 @@ export default function Slides() {
             const count = slides.filter((s) => (s.gid ?? '0') === gid).length
             const isActive = activeGroup === gid
             const isEditing = editingGroupId === gid
+            const g = groups.find((item) => item.gid === gid)
             return (
               <div key={gid} className="inline-flex items-center">
                 {isEditing ? (
@@ -566,14 +667,23 @@ export default function Slides() {
                     <button
                       onClick={() => setActiveGroup(gid)}
                       className={cn(
-                        'px-3 py-1.5 rounded-l-md text-sm font-medium transition-colors',
+                        'px-3 py-1.5 rounded-l-md text-sm font-medium transition-colors flex items-center gap-1',
                         isActive
                           ? 'bg-primary text-primary-foreground'
                           : 'bg-secondary text-secondary-foreground hover:bg-accent',
                       )}
+                      title={g?.pathname ? `前端路由: ${g.pathname}` : undefined}
                     >
-                      {getGroupDisplayName(gid, groupNames)}
-                      <span className="ml-1 opacity-70">({count})</span>
+                      <span>{getGroupDisplayName(gid, groupNames)}</span>
+                      {g?.pathname && (
+                        <span className={cn(
+                          'text-[11px] font-mono px-1 py-0.2 rounded',
+                          isActive ? 'bg-primary-foreground/20 text-primary-foreground' : 'bg-muted text-muted-foreground'
+                        )}>
+                          {g.pathname}
+                        </span>
+                      )}
+                      <span className="opacity-70">({count})</span>
                     </button>
                     <button
                       onClick={() => {
@@ -629,13 +739,22 @@ export default function Slides() {
               </button>
             </div>
           ) : (
-            <button
-              onClick={() => setNewGroupMode(true)}
-              className="px-3 py-1.5 rounded-md text-sm font-medium bg-secondary/50 text-muted-foreground hover:bg-accent border border-dashed border-slate-300 transition-colors"
-              title="新增分組（ID自動遞增）"
-            >
-              ➕ 新增分組
-            </button>
+            <div className="inline-flex items-center gap-1.5">
+              <button
+                onClick={() => setNewGroupMode(true)}
+                className="px-3 py-1.5 rounded-md text-sm font-medium bg-secondary/50 text-muted-foreground hover:bg-accent border border-dashed border-slate-300 transition-colors"
+                title="快速新增分組（ID自動遞增）"
+              >
+                ➕ 新增分組
+              </button>
+              <button
+                onClick={() => setGroupManageOpen(true)}
+                className="px-3 py-1.5 rounded-md text-sm font-medium bg-secondary text-secondary-foreground hover:bg-accent border transition-colors flex items-center gap-1"
+                title="開啟完整分組管理視窗 (配置名稱、前端路徑及排序)"
+              >
+                <span>⚙️</span> 分組管理
+              </button>
+            </div>
           )}
         </div>
       )}
@@ -1136,11 +1255,14 @@ export default function Slides() {
                     {uniqueGroups.includes(form.gid) ? null : (
                       <option value="__custom__">自定義: {form.gid}</option>
                     )}
-                    {uniqueGroups.map((gid) => (
-                      <option key={gid} value={gid}>
-                        {getGroupDisplayName(gid, groupNames)} (ID: {gid})
-                      </option>
-                    ))}
+                    {uniqueGroups.map((gid) => {
+                      const g = groups.find((item) => item.gid === gid)
+                      return (
+                        <option key={gid} value={gid}>
+                          {getGroupDisplayName(gid, groupNames)} {g?.pathname ? `(${g.pathname})` : `(ID: ${gid})`}
+                        </option>
+                      )
+                    })}
                   </select>
                 </div>
                 <div>
@@ -1235,11 +1357,14 @@ export default function Slides() {
                   onChange={(e) => setCopyGid(e.target.value)}
                   className="w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-ring text-sm bg-white"
                 >
-                  {uniqueGroups.map((gid) => (
-                    <option key={gid} value={gid}>
-                      {getGroupDisplayName(gid, groupNames)} (ID: {gid})
-                    </option>
-                  ))}
+                  {uniqueGroups.map((gid) => {
+                    const g = groups.find((item) => item.gid === gid)
+                    return (
+                      <option key={gid} value={gid}>
+                        {getGroupDisplayName(gid, groupNames)} {g?.pathname ? `(${g.pathname})` : `(ID: ${gid})`}
+                      </option>
+                    )
+                  })}
                 </select>
               </div>
               {copyGid === copyTarget.gid && (
@@ -1265,6 +1390,304 @@ export default function Slides() {
                 className="px-4 py-2 text-sm bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors disabled:opacity-50"
               >
                 {copying ? '⏳ 複製中...' : '📋 確認複製'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* ─── 幻燈片分組管理 Modal ─── */}
+      {groupManageOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="bg-white rounded-lg shadow-xl w-full max-w-3xl max-h-[90vh] flex flex-col border overflow-hidden">
+            {/* 標題欄 */}
+            <div className="flex items-center justify-between px-6 py-4 border-b bg-gray-50">
+              <div>
+                <h3 className="text-lg font-bold flex items-center gap-2">
+                  <span>⚙️</span> 幻燈片分組管理
+                </h3>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  為每個輪播圖分組指定前端路由路徑 (pathname)，供前端網站動態匹配對應頁面的橫幅圖
+                </p>
+              </div>
+              <button
+                onClick={() => {
+                  setGroupManageOpen(false)
+                  setGroupActionError('')
+                  setEditingGroupRow(null)
+                }}
+                className="text-muted-foreground hover:text-foreground text-lg p-1 rounded"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* 錯誤提示 */}
+            {groupActionError && (
+              <div className="mx-6 mt-4 p-3 bg-destructive/10 text-destructive text-sm rounded-md flex items-center gap-2">
+                <span>⚠️</span>
+                <span>{groupActionError}</span>
+              </div>
+            )}
+
+            {/* 內容區：可滾動 */}
+            <div className="px-6 py-4 overflow-y-auto flex-1 space-y-6">
+              {/* 新增分組區域 */}
+              <div className="bg-gray-50 p-4 rounded-lg border">
+                <h4 className="text-sm font-semibold mb-3 flex items-center gap-1.5">
+                  <span>➕</span> 新增分組
+                </h4>
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+                  <div>
+                    <label className="block text-xs font-medium text-muted-foreground mb-1">
+                      分組 ID (選填)
+                    </label>
+                    <input
+                      type="text"
+                      value={newGroupForm.gid}
+                      onChange={(e) => setNewGroupForm({ ...newGroupForm, gid: e.target.value })}
+                      placeholder="留空自動遞增"
+                      className="w-full px-2.5 py-1.5 border rounded text-xs bg-white focus:outline-none focus:ring-2 focus:ring-ring"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-muted-foreground mb-1">
+                      分組名稱 <span className="text-destructive">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={newGroupForm.name}
+                      onChange={(e) => setNewGroupForm({ ...newGroupForm, name: e.target.value })}
+                      placeholder="例：大腸鏡中心"
+                      className="w-full px-2.5 py-1.5 border rounded text-xs bg-white focus:outline-none focus:ring-2 focus:ring-ring"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-muted-foreground mb-1">
+                      前端路徑 pathname
+                    </label>
+                    <input
+                      type="text"
+                      value={newGroupForm.pathname}
+                      onChange={(e) => setNewGroupForm({ ...newGroupForm, pathname: e.target.value })}
+                      placeholder="例：/ 或 /services/colon"
+                      className="w-full px-2.5 py-1.5 border rounded text-xs bg-white font-mono focus:outline-none focus:ring-2 focus:ring-ring"
+                    />
+                  </div>
+                  <div className="flex items-end gap-2">
+                    <div className="w-20">
+                      <label className="block text-xs font-medium text-muted-foreground mb-1">
+                        排序
+                      </label>
+                      <input
+                        type="number"
+                        value={newGroupForm.sorting}
+                        onChange={(e) => setNewGroupForm({ ...newGroupForm, sorting: Number(e.target.value) })}
+                        className="w-full px-2.5 py-1.5 border rounded text-xs bg-white focus:outline-none focus:ring-2 focus:ring-ring"
+                      />
+                    </div>
+                    <button
+                      onClick={handleModalCreateGroup}
+                      disabled={groupSaving}
+                      className="px-3 py-1.5 bg-primary text-primary-foreground rounded text-xs font-medium hover:opacity-90 disabled:opacity-50 whitespace-nowrap h-[32px] flex-1"
+                    >
+                      {groupSaving ? '保存中...' : '確認新增'}
+                    </button>
+                  </div>
+                </div>
+                <p className="text-[11px] text-muted-foreground mt-2">
+                  💡 前端網站可直接調用 <code className="bg-white px-1 py-0.5 rounded border text-[11px]">/api/v1/slides?pathname=/路徑</code> 取得對應頁面的橫幅圖。
+                </p>
+              </div>
+
+              {/* 分組清單表格 */}
+              <div>
+                <h4 className="text-sm font-semibold mb-2.5 flex items-center justify-between">
+                  <span>分組清單 ({groups.length})</span>
+                  <span className="text-xs text-muted-foreground font-normal">
+                    按排序 (ASC) 顯示
+                  </span>
+                </h4>
+
+                <div className="border rounded-md overflow-hidden">
+                  <table className="w-full text-left text-xs border-collapse">
+                    <thead>
+                      <tr className="bg-gray-50 border-b text-muted-foreground">
+                        <th className="px-3 py-2.5 font-medium w-16">GID</th>
+                        <th className="px-3 py-2.5 font-medium">分組名稱</th>
+                        <th className="px-3 py-2.5 font-medium">前端路徑 (pathname)</th>
+                        <th className="px-3 py-2.5 font-medium w-16 text-center">排序</th>
+                        <th className="px-3 py-2.5 font-medium w-20 text-center">圖片數</th>
+                        <th className="px-3 py-2.5 font-medium w-24 text-right">操作</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y">
+                      {groups.length === 0 ? (
+                        <tr>
+                          <td colSpan={6} className="text-center py-6 text-muted-foreground">
+                            暫無分組記錄
+                          </td>
+                        </tr>
+                      ) : (
+                        groups.map((g) => {
+                          const isRowEditing = editingGroupRow?.gid === g.gid
+                          const slideCount = slides.filter((s) => (s.gid ?? '0') === g.gid).length
+
+                          if (isRowEditing) {
+                            return (
+                              <tr key={g.gid} className="bg-blue-50/50">
+                                <td className="px-3 py-2 font-mono font-medium">{g.gid}</td>
+                                <td className="px-3 py-2">
+                                  <input
+                                    type="text"
+                                    value={editingGroupRow.name}
+                                    onChange={(e) =>
+                                      setEditingGroupRow({ ...editingGroupRow, name: e.target.value })
+                                    }
+                                    className="w-full px-2 py-1 border rounded bg-white text-xs"
+                                    placeholder="名稱"
+                                  />
+                                </td>
+                                <td className="px-3 py-2">
+                                  <input
+                                    type="text"
+                                    value={editingGroupRow.pathname}
+                                    onChange={(e) =>
+                                      setEditingGroupRow({ ...editingGroupRow, pathname: e.target.value })
+                                    }
+                                    className="w-full px-2 py-1 border rounded bg-white text-xs font-mono"
+                                    placeholder="例：/ 或 /services/colon"
+                                  />
+                                </td>
+                                <td className="px-3 py-2">
+                                  <input
+                                    type="number"
+                                    value={editingGroupRow.sorting}
+                                    onChange={(e) =>
+                                      setEditingGroupRow({
+                                        ...editingGroupRow,
+                                        sorting: Number(e.target.value),
+                                      })
+                                    }
+                                    className="w-16 px-2 py-1 border rounded bg-white text-xs text-center"
+                                  />
+                                </td>
+                                <td className="px-3 py-2 text-center text-muted-foreground">
+                                  {slideCount}
+                                </td>
+                                <td className="px-3 py-2 text-right">
+                                  <div className="flex items-center justify-end gap-1">
+                                    <button
+                                      onClick={() => handleModalUpdateGroup(g.gid)}
+                                      disabled={groupSaving}
+                                      className="px-2 py-1 bg-primary text-primary-foreground rounded text-[11px] hover:opacity-90"
+                                      title="保存"
+                                    >
+                                      💾
+                                    </button>
+                                    <button
+                                      onClick={() => setEditingGroupRow(null)}
+                                      className="px-2 py-1 border rounded text-[11px] hover:bg-accent"
+                                      title="取消"
+                                    >
+                                      ❌
+                                    </button>
+                                  </div>
+                                </td>
+                              </tr>
+                            )
+                          }
+
+                          return (
+                            <tr key={g.gid} className="hover:bg-gray-50/80 transition-colors">
+                              <td className="px-3 py-2.5 font-mono font-medium">
+                                <span className="bg-secondary px-1.5 py-0.5 rounded text-[11px]">
+                                  {g.gid}
+                                </span>
+                              </td>
+                              <td className="px-3 py-2.5 font-medium">
+                                {g.name}
+                              </td>
+                              <td className="px-3 py-2.5 font-mono">
+                                {g.pathname ? (
+                                  <span className="text-primary bg-primary/10 px-2 py-0.5 rounded text-[11px] font-mono font-medium">
+                                    {g.pathname}
+                                  </span>
+                                ) : (
+                                  <span className="text-muted-foreground opacity-50 italic text-[11px]">
+                                    未綁定路徑
+                                  </span>
+                                )}
+                              </td>
+                              <td className="px-3 py-2.5 text-center text-muted-foreground">
+                                {g.sorting}
+                              </td>
+                              <td className="px-3 py-2.5 text-center">
+                                <span
+                                  className={cn(
+                                    'px-1.5 py-0.5 rounded text-[11px]',
+                                    slideCount > 0
+                                      ? 'bg-blue-50 text-blue-600 font-medium'
+                                      : 'text-muted-foreground',
+                                  )}
+                                >
+                                  {slideCount}
+                                </span>
+                              </td>
+                              <td className="px-3 py-2.5 text-right">
+                                <div className="flex items-center justify-end gap-1">
+                                  <button
+                                    onClick={() => {
+                                      setEditingGroupRow({
+                                        gid: g.gid,
+                                        name: g.name,
+                                        pathname: g.pathname || '',
+                                        sorting: g.sorting,
+                                      })
+                                    }}
+                                    className="p-1 text-muted-foreground hover:text-foreground rounded hover:bg-accent transition-colors"
+                                    title="編輯分組"
+                                  >
+                                    ✏️
+                                  </button>
+                                  <button
+                                    onClick={() => handleModalDeleteGroup(g.gid)}
+                                    disabled={groupSaving || slideCount > 0}
+                                    className={cn(
+                                      'p-1 rounded transition-colors',
+                                      slideCount > 0
+                                        ? 'opacity-30 cursor-not-allowed'
+                                        : 'text-muted-foreground hover:text-destructive hover:bg-destructive/10',
+                                    )}
+                                    title={slideCount > 0 ? '該分組仍有圖片，無法刪除' : '刪除分組'}
+                                  >
+                                    🗑️
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+                          )
+                        })
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+
+            {/* 頁腳 */}
+            <div className="flex items-center justify-between px-6 py-3 border-t bg-gray-50">
+              <span className="text-xs text-muted-foreground">
+                共 {groups.length} 個分組
+              </span>
+              <button
+                onClick={() => {
+                  setGroupManageOpen(false)
+                  setGroupActionError('')
+                  setEditingGroupRow(null)
+                }}
+                className="px-4 py-1.5 border rounded-md text-xs hover:bg-accent"
+              >
+                關閉
               </button>
             </div>
           </div>

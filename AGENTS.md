@@ -1,6 +1,6 @@
 # AGENTS.md — 項目約束與開發規範
 
-> **強制約束文件**。所有代碼生成、修改、審查必須遵守。當前版本：**v1.9.80**（2026-09-28）
+> **強制約束文件**。所有代碼生成、修改、審查必須遵守。當前版本：**v1.9.81**（2026-10-29）
 
 ## 語言選擇優先級
 
@@ -272,6 +272,16 @@ POST/PUT/DELETE 仍需對應菜單權限，防止非授權用戶創建/修改數
 - **管理 API**（POST/PUT/DELETE 僅內部操作，需 JWT + M302 權限）：`/api/v1/admin/booking/calendars/*` + `/api/v1/admin/booking/schedules/*`
 - **菜單**：M302 掛在 M300 多媒體下，僅 smile 站點可見（前端 `currentSiteId` 過濾，`NavItem.siteOnly` 字段）
 - **批量操作**：排期支持批量新增（日期×時段組合）、批量刪除（`?ids=1,2,3`）
+
+### 幻燈片分組與路由綁定（v1.9.81）
+
+- **pathname 字段**：`ay_slide_group` 表新增 `pathname` 字段與索引，首頁分組（gid='1'）預設為 '/'，其餘分組可綁定前端路徑（如 `/services/colonoscopy`）
+- **雙查詢 API**：
+  - `GET /api/v1/slides?pathname=/services/xxx`：按路徑直查圖片，未命中時返回 `data: []`（HTTP 200），前端單次請求完成判斷與渲染
+  - `GET /api/v1/slides/groups`：公開分組端點，返回包含 pathname 的全部分組列表
+  - 向下兼容 `GET /api/v1/slides?gid=1`
+- **後台分組管理**：獨立 Modal 支援維護分組 ID、名稱、前端路徑、排序、關聯圖片統計及防孤立安全刪除
+- **路徑規範化**：後端自動處理前後多餘斜杠與空白（`normalizePathname`）
 
 ### 邊緣緩存（Workers Cache，v1.7.0）
 

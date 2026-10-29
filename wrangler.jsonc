@@ -135,9 +135,10 @@
     }
   ],
 
-  "ai": {
-    "binding": "AI"
-  },
+  // Workers AI 綁定（若 API Token 缺少 Workers AI 權限會報 10021 錯誤；待 Token 補充權限後可取消註釋）
+  // "ai": {
+  //   "binding": "AI"
+  // },
 
   "ratelimits": [
     {

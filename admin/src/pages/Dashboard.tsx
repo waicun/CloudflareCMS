@@ -61,10 +61,26 @@ const TABS: { key: TabKey; label: string; icon: string }[] = [
 /** 版本更新歷史（硬編碼，時區：Asia/Hong_Kong） */
 const VERSIONS: VersionEntry[] = [
   {
+    version: 'v1.9.81',
+    date: '2026-10-29 14:30:00',
+    icon: '🗂️',
+    latest: true,
+    changes: `🗂️ 幻燈片分組前端路由 (pathname) 綁定與分組管理彈窗
+
+📋 變更內容
+• 🌐 分組綁定前端路由 (pathname)：ay_slide_group 表新增 pathname 字段與索引，首頁預設綁定 '/'，支援任意自定義路徑（如 '/services/colonoscopy'）
+• 📡 雙查詢 API 支援：
+  - 公開輪播圖接口（GET /api/v1/slides?pathname=/services/xxx）支援直接以路徑查詢圖片，未配置分組時優雅返回 []（HTTP 200），前端單次請求即可完成判斷與渲染
+  - 新增公開分組接口（GET /api/v1/slides/groups），方便前端預載全站分組清單
+• ⚙️ 獨立分組管理 Modal：支援在後台一站式管理分組 ID、名稱、前端路徑、排序、關聯圖片數量及防孤立安全刪除
+• 🏷️ 標籤與選單聯動：頂部分組 Tab 即時顯示 pathname 標籤，幻燈片編輯與複製下拉選單顯示 [名稱 (pathname)]，避免選錯分組
+• 🛡️ 路徑自動規範化：後端自動處理前後多餘斜杠與空白，保證路徑精確匹配`,
+  },
+  {
     version: 'v1.9.80',
     date: '2026-09-28 17:15:00',
     icon: '✨',
-    latest: true,
+    latest: false,
     changes: `✨ 編輯器體驗優化：標題與字號下拉選單中文標識清晰化、官方小字號支援與居左排版修復
 
 📋 編輯器與排版體驗
@@ -1227,7 +1243,8 @@ const API_ENDPOINTS: ApiEndpoint[] = [
   { method: 'GET', path: '/api/v1/contents/all', desc: '批量內容列表-靜態打包用 (?scode=&page=&pagesize=&content=full, max 500/頁, content=full同上 v1.9.58+)', auth: false },
   { method: 'GET', path: '/api/v1/contents/:idOrSlug', desc: '內容詳情 (?status=0 草稿預覽, content平鋪sortname+ext_*字段, prev/next同欄目樹, faqJson FAQ JSON-LD, v1.8.1+)', auth: false },
   { method: 'GET', path: '/api/v1/search', desc: '語義搜索 (?q=關鍵詞&topK=10&threshold=0.5)', auth: false },
-  { method: 'GET', path: '/api/v1/slides', desc: '幻燈片列表 (?gid=)', auth: false },
+  { method: 'GET', path: '/api/v1/slides/groups', desc: '幻燈片分組列表 (含 pathname 綁定 v1.9.81+)', auth: false },
+  { method: 'GET', path: '/api/v1/slides', desc: '幻燈片列表 (?gid= 或 ?pathname=前端路徑 v1.9.81+)', auth: false },
   { method: 'GET', path: '/api/v1/links', desc: '友情連結 (?gid=)', auth: false },
   { method: 'GET', path: '/api/v1/singles', desc: '單頁列表', auth: false },
   { method: 'GET', path: '/api/v1/singles/:scode', desc: '單頁詳情', auth: false },
